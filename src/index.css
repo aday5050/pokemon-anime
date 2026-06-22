@@ -678,12 +678,22 @@ body {
   .dashboard-grid {
     grid-template-columns: 1fr;
     padding: 0 1rem 1rem 1rem;
+    min-width: 0;
+    max-width: 100vw;
+    overflow: hidden;
   }
   
   .sidebar-panel {
     position: static;
     max-height: none;
     border-radius: 12px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  
+  .main-content {
+    min-width: 0;
+    max-width: 100%;
   }
   
   .seasons-list {
