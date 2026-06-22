@@ -409,6 +409,7 @@ function App() {
                 }}>
                   <VideoPlayer 
                     m3u8Url={`/pkvideo/descargas/stream/serie-ash/t${String(selectedEpisode.seasonId).padStart(2, '0')}/e${String(selectedEpisode.number).padStart(2, '0')}/t${String(selectedEpisode.seasonId).padStart(2, '0')}_e${String(selectedEpisode.number).padStart(2, '0')}.master.m3u8`}
+                    episodeId={`${selectedEpisode.seasonId}_${selectedEpisode.number}`}
                   />
                 </div>
               </div>

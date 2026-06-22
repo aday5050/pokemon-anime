@@ -1,16 +1,18 @@
 import React, { useEffect, useRef } from 'react';
 import Hls from 'hls.js';
+import { useWatchProgress } from './hooks/useWatchProgress';
 
-export default function VideoPlayer({ m3u8Url }) {
+export default function VideoPlayer({ m3u8Url, episodeId }) {
   const videoRef = useRef(null);
+  const { initialProgress, isLoaded, saveProgress } = useWatchProgress(episodeId);
 
   useEffect(() => {
-    if (!m3u8Url || !videoRef.current) return;
+    // Solo cargamos el video cuando Firebase haya respondido
+    if (!m3u8Url || !videoRef.current || !isLoaded) return;
 
     const video = videoRef.current;
-    
-    // Destroy previous HLS instance if it exists to prevent memory leaks when changing episodes
     let hls;
+    let isFirstPlay = true;
 
     if (Hls.isSupported()) {
       hls = new Hls({
@@ -22,19 +24,35 @@ export default function VideoPlayer({ m3u8Url }) {
       hls.loadSource(m3u8Url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        // video.play().catch(e => console.log("Autoplay prevented", e)); 
+        // Al cargar el video, vamos al minuto donde nos quedamos
+        if (initialProgress > 0) {
+          video.currentTime = initialProgress;
+        }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari soporta HLS nativo
+      // Safari
       video.src = m3u8Url;
+      video.addEventListener('loadedmetadata', () => {
+        if (initialProgress > 0 && isFirstPlay) {
+          video.currentTime = initialProgress;
+          isFirstPlay = false;
+        }
+      });
     }
 
+    // Escuchar cuando el video avanza para guardarlo en Firebase
+    const handleTimeUpdate = () => {
+      saveProgress(video.currentTime);
+    };
+    video.addEventListener('timeupdate', handleTimeUpdate);
+
     return () => {
+      video.removeEventListener('timeupdate', handleTimeUpdate);
       if (hls) {
         hls.destroy();
       }
     };
-  }, [m3u8Url]);
+  }, [m3u8Url, isLoaded, initialProgress]);
 
   return (
     <video
