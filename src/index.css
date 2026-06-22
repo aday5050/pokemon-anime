@@ -818,3 +818,89 @@ body {
     font-size: 0.65rem;
   }
 }
+
+/* Auth and Progress Styles */
+.user-profile {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.25rem 1rem 0.25rem 0.25rem;
+  border-radius: 30px;
+}
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--neon-blue);
+}
+.user-info {
+  display: flex;
+  flex-direction: column;
+}
+.user-name {
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+.logout-btn {
+  background: transparent;
+  border: none;
+  color: var(--neon-red);
+  font-size: 0.7rem;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+.login-btn {
+  background: #fff;
+  color: #333;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s;
+}
+.login-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 10px rgba(255,255,255,0.5);
+}
+.google-icon {
+  font-weight: 900;
+  color: #4285F4;
+}
+
+.ep-seen-badge, .ep-watching-badge {
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+}
+.ep-seen-badge {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4CAF50;
+  border: 1px solid #4CAF50;
+}
+.ep-watching-badge {
+  background: rgba(255, 152, 0, 0.2);
+  color: #FF9800;
+  border: 1px solid #FF9800;
+  animation: pulse-lens 2s infinite alternate;
+}
+
+.episode-card.seen {
+  opacity: 0.6;
+  filter: grayscale(0.3);
+}
+.episode-card.seen:hover {
+  opacity: 1;
+  filter: grayscale(0);
+}
+.season-btn.completed {
+  border-color: #4CAF50;
+  box-shadow: 0 0 10px rgba(76, 175, 80, 0.2);
+}
+

@@ -1,8 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import VideoPlayer from './VideoPlayer';
 import pokemonData from './data/pokemon_episodes.json';
+import { useAuth } from './context/AuthContext';
+import { useProgress } from './context/ProgressContext';
 
 function App() {
+  const { currentUser, loginWithGoogle, logout } = useAuth();
+  const { seenEpisodes, currentlyWatching } = useProgress();
+
   const [selectedSeasonId, setSelectedSeasonId] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('all'); // all, canon, filler
@@ -16,12 +21,18 @@ function App() {
       const canon = season.episodes.filter(ep => ep.status === 'Historia').length;
       const filler = total - canon;
       const canonPct = total > 0 ? Math.round((canon / total) * 100) : 0;
+      
+      // Calculate if season is completed (all canon episodes seen)
+      const canonEpisodes = season.episodes.filter(ep => ep.status === 'Historia');
+      const isCompleted = canonEpisodes.length > 0 && canonEpisodes.every(ep => seenEpisodes.has(`${season.id}_${ep.number}`));
+
       return {
         ...season,
+        isCompleted,
         stats: { total, canon, filler, canonPct }
       };
     });
-  }, []);
+  }, [seenEpisodes]);
 
   // Filter episodes based on selected season, search query and filler filter
   const filteredEpisodes = useMemo(() => {
@@ -115,10 +126,23 @@ function App() {
             POKÉDEX <span>ANIME</span>
           </h1>
         </div>
-        <div className="pokedex-stats-quick">
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-            Serie Completa de Ash Ketchum • <strong>1226 Episodios</strong>
+        <div className="pokedex-stats-quick" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }} className="hide-mobile">
+            Serie Completa • <strong>1226 Episodios</strong>
           </span>
+          {currentUser ? (
+            <div className="user-profile">
+              <img src={currentUser.photoURL || 'https://via.placeholder.com/32'} alt="Avatar" className="user-avatar" />
+              <div className="user-info">
+                <span className="user-name">{currentUser.displayName?.split(' ')[0]}</span>
+                <button onClick={logout} className="logout-btn">Salir</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={loginWithGoogle} className="login-btn">
+              <span className="google-icon">G</span> Iniciar Sesión
+            </button>
+          )}
         </div>
       </header>
 
@@ -144,9 +168,11 @@ function App() {
               <button
                 key={season.id}
                 onClick={() => setSelectedSeasonId(season.id.toString())}
-                className={`season-btn ${selectedSeasonId === season.id.toString() ? 'active' : ''}`}
+                className={`season-btn ${selectedSeasonId === season.id.toString() ? 'active' : ''} ${season.isCompleted ? 'completed' : ''}`}
               >
-                <span className="season-btn-name">{season.name}</span>
+                <span className="season-btn-name">
+                  {season.name} {season.isCompleted && '✅'}
+                </span>
                 <span className="season-btn-stats">
                   {season.stats.total} caps • {season.stats.canonPct}% canon
                 </span>
@@ -237,10 +263,15 @@ function App() {
           {/* Episodes Grid */}
           {filteredEpisodes.length > 0 ? (
             <div className="episode-grid">
-              {filteredEpisodes.map((ep) => (
+              {filteredEpisodes.map((ep) => {
+                const epKey = `${ep.seasonId}_${ep.number}`;
+                const isSeen = seenEpisodes.has(epKey);
+                const isWatching = currentlyWatching === epKey;
+                
+                return (
                 <div
-                  key={`${ep.seasonId}-${ep.number}`}
-                  className={`episode-card glass ${ep.status === 'Historia' ? 'canon' : 'filler'}`}
+                  key={epKey}
+                  className={`episode-card glass ${ep.status === 'Historia' ? 'canon' : 'filler'} ${isSeen ? 'seen' : ''} ${isWatching ? 'watching' : ''}`}
                   onClick={() => { setSelectedEpisode(ep); setActiveTab('details'); }}
                 >
                   <div className="ep-card-header">
@@ -248,9 +279,13 @@ function App() {
                       <span className="ep-number">Cap. {ep.number}</span>
                       <span className="ep-global">Global: #{ep.global_number}</span>
                     </div>
-                    <span className={`ep-status-badge ${ep.status === 'Historia' ? 'canon' : 'filler'}`}>
-                      {ep.status === 'Historia' ? 'Canon' : 'Relleno'}
-                    </span>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      {isWatching && <span className="ep-watching-badge">Viendo 👀</span>}
+                      {isSeen && !isWatching && <span className="ep-seen-badge">Visto ✅</span>}
+                      <span className={`ep-status-badge ${ep.status === 'Historia' ? 'canon' : 'filler'}`}>
+                        {ep.status === 'Historia' ? 'Canon' : 'Relleno'}
+                      </span>
+                    </div>
                   </div>
                   
                   <h3 className="ep-title">{ep.title}</h3>
@@ -263,7 +298,7 @@ function App() {
                     <p className="ep-desc">{ep.description}</p>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           ) : (
             <div className="empty-state glass">
