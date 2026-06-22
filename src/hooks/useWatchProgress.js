@@ -11,7 +11,10 @@ export function useWatchProgress(episodeId) {
 
   // Cargar el progreso inicial desde Firebase cuando cambia el episodio
   useEffect(() => {
-    if (!episodeId || !SYNC_ID) return;
+    if (!episodeId || !SYNC_ID) {
+      setIsLoaded(true);
+      return;
+    }
     
     let isMounted = true;
     
