@@ -10,6 +10,7 @@ export function useWatchProgress(episodeId) {
   const [initialProgress, setInitialProgress] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const lastSavedTime = useRef(0);
+  const currentEp = useRef(null);
 
   // Cargar el progreso inicial desde el contexto de progreso global
   useEffect(() => {
@@ -18,6 +19,11 @@ export function useWatchProgress(episodeId) {
       return;
     }
     
+    // Si ya hemos cargado el progreso de este episodio, ignoramos las actualizaciones en tiempo real
+    if (currentEp.current === episodeId) return;
+    
+    currentEp.current = episodeId;
+
     // Al cambiar el episodio, leemos la última posición desde progressData
     if (progressData[episodeId] && progressData[episodeId].time) {
       setInitialProgress(progressData[episodeId].time);
