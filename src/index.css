@@ -774,17 +774,15 @@ body {
   }
   
   .details-modal {
-    padding: 0;
-    align-items: flex-end; /* Align to bottom for a bottom-sheet feel on mobile */
+    padding: 0.5rem;
+    align-items: center;
   }
   
   .details-content {
     padding: 1.5rem 1rem;
-    border-radius: 16px 16px 0 0; /* Only top borders rounded */
-    max-height: 95vh;
-    border-bottom: none;
-    border-left: none;
-    border-right: none;
+    border-radius: 16px;
+    max-height: 90vh;
+    overflow-y: auto;
   }
   
   .details-ep-title {
