@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { signInWithRedirect, signOut, onAuthStateChanged, getRedirectResult } from 'firebase/auth';
+import { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 
 const AuthContext = createContext();
@@ -14,9 +14,15 @@ export function AuthProvider({ children }) {
 
   async function loginWithGoogle() {
     try {
-      await signInWithRedirect(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      console.log("Login exitoso:", result.user);
     } catch (error) {
       console.error("Error logging in with Google:", error);
+      if (error.code === 'auth/popup-blocked') {
+        alert("⚠️ TU NAVEGADOR HA BLOQUEADO EL INICIO DE SESIÓN ⚠️\n\nPor favor, busca el icono de 'Ventana emergente bloqueada' en la barra de direcciones (arriba a la derecha), haz clic en él y selecciona 'Permitir siempre'. Luego vuelve a intentarlo.");
+      } else {
+        alert("Error al iniciar sesión: " + error.message);
+      }
     }
   }
 
@@ -29,16 +35,6 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
-    // Verificar si venimos de un redirect de Google
-    getRedirectResult(auth).then((result) => {
-      if (result) {
-        console.log("Login successful:", result.user);
-      }
-    }).catch((error) => {
-      console.error("Error en el redirect:", error);
-      alert("Error al iniciar sesión: " + error.message);
-    });
-
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setLoading(false);
