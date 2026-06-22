@@ -7,14 +7,14 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // Extraemos la ruta ignorando el prefijo /api/proxy
-  // ej: req.url = "/api/proxy/descargas/stream/..."
-  const path = req.url.replace(/^\/api\/proxy/, '');
-  const targetUrl = `https://pkproject.net${path}`;
+  // Extraemos la ruta desde el parámetro ?path= que nos envía vercel.json
+  const path = req.query.path;
   
-  if (!path || path === '/') {
+  if (!path) {
     return res.status(400).json({ error: 'Missing path' });
   }
+
+  const targetUrl = `https://pkproject.net/${path}`;
 
   try {
     const response = await fetch(targetUrl, {

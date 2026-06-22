@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/pkvideo/:match*",
-      "destination": "/api/proxy/:match*"
+      "source": "/pkvideo/(.*)",
+      "destination": "/api/proxy?path=$1"
     },
     {
       "source": "/(.*)",
