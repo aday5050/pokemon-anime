@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { signInWithRedirect, signOut, onAuthStateChanged } from 'firebase/auth';
+import { signInWithRedirect, signOut, onAuthStateChanged, getRedirectResult } from 'firebase/auth';
 import { auth, googleProvider } from '../lib/firebase';
 
 const AuthContext = createContext();
@@ -29,6 +29,16 @@ export function AuthProvider({ children }) {
   }
 
   useEffect(() => {
+    // Verificar si venimos de un redirect de Google
+    getRedirectResult(auth).then((result) => {
+      if (result) {
+        console.log("Login successful:", result.user);
+      }
+    }).catch((error) => {
+      console.error("Error en el redirect:", error);
+      alert("Error al iniciar sesión: " + error.message);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setLoading(false);
