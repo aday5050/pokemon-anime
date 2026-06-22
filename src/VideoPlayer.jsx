@@ -16,6 +16,7 @@ export default function VideoPlayer({ m3u8Url, episodeId }) {
 
     if (Hls.isSupported()) {
       hls = new Hls({
+        startPosition: initialProgress > 0 ? initialProgress : -1,
         xhrSetup: function(xhr, url) {
           xhr.withCredentials = false;
         }
@@ -23,12 +24,7 @@ export default function VideoPlayer({ m3u8Url, episodeId }) {
       
       hls.loadSource(m3u8Url);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        // Al cargar el video, vamos al minuto donde nos quedamos
-        if (initialProgress > 0) {
-          video.currentTime = initialProgress;
-        }
-      });
+      // No necesitamos MANIFEST_PARSED para startPosition
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       // Safari
       video.src = m3u8Url;
