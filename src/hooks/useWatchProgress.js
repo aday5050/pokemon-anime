@@ -1,61 +1,45 @@
-import { useState, useEffect, useRef } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 import { useProgress } from '../context/ProgressContext';
 
 export function useWatchProgress(episodeId) {
   const { currentUser } = useAuth();
-  const { progressData } = useProgress();
-  const [initialProgress, setInitialProgress] = useState(0);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const { progressData, loading } = useProgress();
+  const userId = currentUser?.uid ?? null;
+  const episodeKey = `${userId ?? 'guest'}:${episodeId ?? ''}`;
+  const [restored, setRestored] = useState({ key: null, time: 0 });
   const lastSavedTime = useRef(0);
-  const currentEp = useRef(null);
 
-  // Cargar el progreso inicial desde el contexto de progreso global
   useEffect(() => {
-    if (!episodeId || !currentUser) {
-      setIsLoaded(true);
-      return;
-    }
-    
-    // Si ya hemos cargado el progreso de este episodio, ignoramos las actualizaciones en tiempo real
-    if (currentEp.current === episodeId) return;
-    
-    currentEp.current = episodeId;
+    if (userId && loading) return;
+    if (restored.key === episodeKey) return;
 
-    // Al cambiar el episodio, leemos la última posición desde progressData
-    if (progressData[episodeId] && progressData[episodeId].time) {
-      setInitialProgress(progressData[episodeId].time);
-      lastSavedTime.current = progressData[episodeId].time;
-    } else {
-      setInitialProgress(0);
-      lastSavedTime.current = 0;
-    }
-    
-    setIsLoaded(true);
-  }, [episodeId, currentUser, progressData]);
+    const time = userId && episodeId ? Number(progressData[episodeId]?.time) || 0 : 0;
+    lastSavedTime.current = time;
+    // The initial position is captured once per account and episode, after Firestore loads.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRestored({ key: episodeKey, time });
+  }, [episodeId, episodeKey, loading, progressData, restored.key, userId]);
 
-  // Función para guardar el progreso (se llama mientras se reproduce el video)
-  const saveProgress = async (time) => {
-    if (!episodeId || !currentUser || !isLoaded) return;
-    
-    // Solo guardamos en la base de datos si la diferencia de tiempo es mayor a 10 segundos
-    if (Math.abs(time - lastSavedTime.current) > 10) {
-      lastSavedTime.current = time;
-      try {
-        const docRef = doc(db, 'user_progress', currentUser.uid);
-        await setDoc(docRef, {
-          [episodeId]: {
-            time: Math.floor(time),
-            lastUpdated: new Date().toISOString()
-          }
-        }, { merge: true });
-      } catch (e) {
-        console.error("Error guardando el progreso:", e);
-      }
-    }
-  };
+  const isLoaded = (!userId || !loading) && restored.key === episodeKey;
+  const saveProgress = useCallback(async (time) => {
+    if (!episodeId || !userId || !isLoaded || !Number.isFinite(time)) return;
+    if (Math.abs(time - lastSavedTime.current) <= 10) return;
 
-  return { initialProgress, isLoaded, saveProgress };
+    const previousTime = lastSavedTime.current;
+    lastSavedTime.current = time;
+    try {
+      await setDoc(doc(db, 'user_progress', userId), {
+        [episodeId]: { time: Math.floor(time), lastUpdated: new Date().toISOString() }
+      }, { merge: true });
+    } catch (error) {
+      // Allow a later timeupdate to retry the same position after a failed write.
+      if (lastSavedTime.current === time) lastSavedTime.current = previousTime;
+      console.error('Error guardando el progreso:', error);
+    }
+  }, [episodeId, isLoaded, userId]);
+
+  return { initialProgress: restored.time, isLoaded, saveProgress };
 }

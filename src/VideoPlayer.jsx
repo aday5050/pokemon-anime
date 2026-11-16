@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import Hls from 'hls.js';
 import { useWatchProgress } from './hooks/useWatchProgress';
 
@@ -7,60 +7,42 @@ export default function VideoPlayer({ m3u8Url, episodeId }) {
   const { initialProgress, isLoaded, saveProgress } = useWatchProgress(episodeId);
 
   useEffect(() => {
-    // Solo cargamos el video cuando Firebase haya respondido
     if (!m3u8Url || !videoRef.current || !isLoaded) return;
 
     const video = videoRef.current;
     let hls;
-    let isFirstPlay = true;
+    const restoreNativeProgress = () => {
+      if (initialProgress > 0) video.currentTime = initialProgress;
+    };
 
     if (Hls.isSupported()) {
-      hls = new Hls({
-        startPosition: initialProgress > 0 ? initialProgress : -1,
-        xhrSetup: function(xhr, url) {
-          xhr.withCredentials = false;
-        }
-      });
-      
+      hls = new Hls({ startPosition: initialProgress > 0 ? initialProgress : -1 });
       hls.loadSource(m3u8Url);
       hls.attachMedia(video);
-      // No necesitamos MANIFEST_PARSED para startPosition
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari
+      video.addEventListener('loadedmetadata', restoreNativeProgress, { once: true });
       video.src = m3u8Url;
-      video.addEventListener('loadedmetadata', () => {
-        if (initialProgress > 0 && isFirstPlay) {
-          video.currentTime = initialProgress;
-          isFirstPlay = false;
-        }
-      });
     }
 
-    // Escuchar cuando el video avanza para guardarlo en Firebase
-    const handleTimeUpdate = () => {
-      saveProgress(video.currentTime);
-    };
-    video.addEventListener('timeupdate', handleTimeUpdate);
-
     return () => {
-      video.removeEventListener('timeupdate', handleTimeUpdate);
-      if (hls) {
-        hls.destroy();
+      video.removeEventListener('loadedmetadata', restoreNativeProgress);
+      if (hls) hls.destroy();
+      else {
+        video.removeAttribute('src');
+        video.load();
       }
     };
   }, [m3u8Url, isLoaded, initialProgress]);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const handleTimeUpdate = () => saveProgress(video.currentTime);
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, [saveProgress]);
+
   return (
-    <video
-      ref={videoRef}
-      controls
-      style={{ 
-        width: '100%', 
-        height: '100%',
-        borderRadius: '12px',
-        background: '#000',
-        objectFit: 'contain'
-      }}
-    />
+    <video ref={videoRef} controls style={{ width: '100%', height: '100%', borderRadius: '12px', background: '#000', objectFit: 'contain' }} />
   );
 }

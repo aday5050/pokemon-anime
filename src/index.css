@@ -437,6 +437,18 @@ body {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.episode-card:focus-visible,
+.details-content button:focus-visible,
+.details-content a:focus-visible {
+  outline: 3px solid var(--neon-blue);
+  outline-offset: 3px;
+}
+
+.cloud-unavailable {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
 .episode-card.canon:hover {
   border-color: rgba(0, 230, 118, 0.3);
   box-shadow: 0 8px 30px rgba(0, 230, 118, 0.08);

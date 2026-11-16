@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import VideoPlayer from './VideoPlayer';
 import pokemonData from './data/pokemon_episodes.json';
 import { useAuth } from './context/AuthContext';
 import { useProgress } from './context/ProgressContext';
 
 function App() {
-  const { currentUser, loginWithGoogle, logout } = useAuth();
+  const { currentUser, loginWithGoogle, logout, isConfigured } = useAuth();
   const { seenEpisodes, currentlyWatching } = useProgress();
 
   const [selectedSeasonId, setSelectedSeasonId] = useState('all');
@@ -13,6 +13,45 @@ function App() {
   const [filterType, setFilterType] = useState('all'); // all, canon, filler
   const [selectedEpisode, setSelectedEpisode] = useState(null);
   const [activeTab, setActiveTab] = useState('details'); // details, player
+  const dialogRef = useRef(null);
+
+  useEffect(() => {
+    if (!selectedEpisode) return;
+
+    const previousFocus = document.activeElement;
+    const dialog = dialogRef.current;
+    const focusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])';
+    dialog?.querySelector('button')?.focus();
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setSelectedEpisode(null);
+      } else if (event.key === 'Tab' && dialog) {
+        const focusable = [...dialog.querySelectorAll(focusableSelector)];
+        if (!focusable.length) {
+          event.preventDefault();
+          return;
+        }
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [selectedEpisode]);
+
+  const totalEpisodes = pokemonData.reduce((total, season) => total + season.episodes.length, 0);
 
   // Parse seasons and precalculate stats
   const seasonsWithStats = useMemo(() => {
@@ -128,7 +167,7 @@ function App() {
         </div>
         <div className="pokedex-stats-quick" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }} className="hide-mobile">
-            Serie Completa • <strong>1226 Episodios</strong>
+              Serie Completa • <strong>{totalEpisodes} Episodios</strong>
           </span>
           {currentUser ? (
             <div className="user-profile">
@@ -138,10 +177,12 @@ function App() {
                 <button onClick={logout} className="logout-btn">Salir</button>
               </div>
             </div>
-          ) : (
+          ) : isConfigured ? (
             <button onClick={loginWithGoogle} className="login-btn">
               <span className="google-icon">G</span> Iniciar Sesión
             </button>
+          ) : (
+            <span className="cloud-unavailable">Progreso en la nube no configurado</span>
           )}
         </div>
       </header>
@@ -153,7 +194,7 @@ function App() {
         <aside className="sidebar-panel glass">
           <div className="sidebar-title">
             <span>TEMPORADAS</span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>25 en Total</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{pokemonData.length} en Total</span>
           </div>
           <div className="seasons-list">
             <button
@@ -161,7 +202,7 @@ function App() {
               className={`season-btn ${selectedSeasonId === 'all' ? 'active' : ''}`}
             >
               <span className="season-btn-name">Todas las Temporadas</span>
-              <span className="season-btn-stats">1226 caps • 25 temp</span>
+              <span className="season-btn-stats">{totalEpisodes} caps • {pokemonData.length} temp</span>
             </button>
             
             {seasonsWithStats.map(season => (
@@ -233,6 +274,7 @@ function App() {
                 type="text"
                 className="search-input"
                 placeholder="Buscar por título, N° capítulo o N° global..."
+                aria-label="Buscar por título, número de capítulo o número global"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -272,7 +314,16 @@ function App() {
                 <div
                   key={epKey}
                   className={`episode-card glass ${ep.status === 'Historia' ? 'canon' : 'filler'} ${isSeen ? 'seen' : ''} ${isWatching ? 'watching' : ''}`}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => { setSelectedEpisode(ep); setActiveTab('details'); }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedEpisode(ep);
+                      setActiveTab('details');
+                    }
+                  }}
                 >
                   <div className="ep-card-header">
                     <div className="ep-badge-group">
@@ -314,11 +365,16 @@ function App() {
         <div className="details-modal" onClick={() => setSelectedEpisode(null)}>
           <div 
             className="details-content glass" 
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="episode-dialog-title"
             onClick={(e) => e.stopPropagation()}
             style={{ borderTop: `4px solid ${selectedEpisode.status === 'Historia' ? 'var(--neon-green)' : 'var(--neon-red)'}` }}
           >
             <button 
               className="details-close-btn"
+              aria-label="Cerrar detalles"
               onClick={() => setSelectedEpisode(null)}
             >
               ✕
@@ -328,7 +384,7 @@ function App() {
               Capítulo {selectedEpisode.number} • Global #{selectedEpisode.global_number}
             </div>
             
-            <h2 className="details-ep-title">{selectedEpisode.title}</h2>
+            <h2 id="episode-dialog-title" className="details-ep-title">{selectedEpisode.title}</h2>
 
             {/* Modal Tabs */}
             <div className="modal-tabs" style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: '1.5rem', paddingBottom: '0.5rem' }}>
@@ -393,10 +449,7 @@ function App() {
                 <div className="details-description-section">
                   <h4 className="details-desc-title">Sinopsis / Detalles</h4>
                   <p className="details-desc">
-                    {selectedEpisode.description || 
-                      "Este episodio pertenece a la historia principal de la aventura de Ash. Para este capítulo, no hay una sinopsis detallada disponible en Pokémaster, pero puedes disfrutarlo sabiendo que es " + 
-                      (selectedEpisode.status === 'Historia' ? 'relevante para la trama (evoluciones, gimnasios, combates clave o capturas).' : 'un episodio de relleno que puedes omitir sin perderte avances en la historia principal.')
-                    }
+                    {selectedEpisode.description || 'No hay una sinopsis disponible para este episodio.'}
                   </p>
                 </div>
                 
