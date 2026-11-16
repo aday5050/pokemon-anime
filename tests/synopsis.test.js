@@ -28,6 +28,9 @@ test('returns decoded description and attribution for a matching episode', async
     assert.equal(res.body.source.name, 'Pokémon Project');
     assert.equal(res.body.source.url, 'https://pkproject.net/episodios/serie-ash/temporada-1/episodio-1');
     assert.equal(options.redirect, 'error');
+    assert.equal(options.headers.Referer, 'https://pkproject.net/');
+    assert.equal(options.headers.Origin, 'https://pkproject.net');
+    assert.match(options.headers['User-Agent'], /Mozilla/);
     assert.match(res.headers['cache-control'], /s-maxage/);
   } finally { globalThis.fetch = originalFetch; }
 });

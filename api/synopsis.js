@@ -39,6 +39,8 @@ async function readBounded(response) {
       size += value.byteLength;
       if (size > maxBytes) throw new Error('Response too large');
       html += decoder.decode(value, { stream: true });
+      // All required metadata lives in <head>; don't wait for the rest of a large page.
+      if (/<\/head\s*>/i.test(html)) return html;
     }
     return html + decoder.decode();
   } finally {
@@ -60,8 +62,20 @@ export default async function handler(req, res) {
   if (!match) return res.status(400).json({ error: 'Episodio no válido' });
 
   const url = `https://pkproject.net/episodios/serie-ash/temporada-${season}/episodio-${episode}`;
+  let upstreamStatus;
   try {
-    const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(8000), headers: { Accept: 'text/html' } });
+    const response = await fetch(url, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(20000),
+      headers: {
+        Accept: 'text/html',
+        Referer: 'https://pkproject.net/',
+        Origin: 'https://pkproject.net',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Accept-Encoding': 'identity',
+      },
+    });
+    upstreamStatus = response.status;
     if (!response.ok || !response.headers.get('content-type')?.toLowerCase().includes('text/html')) throw new Error('Upstream unavailable');
     const values = metadata(await readBounded(response));
     const title = values['og:title']?.split(' - ')[0] || '';
@@ -71,7 +85,9 @@ export default async function handler(req, res) {
     }
     res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800');
     return res.status(200).json({ description, source: { name: 'Pokémon Project', url } });
-  } catch {
+  } catch (error) {
+    // Keep diagnostics in server logs and return the same neutral fallback to clients.
+    console.error('Synopsis lookup failed', { status: upstreamStatus, name: error.name, code: error.cause?.code });
     return res.status(502).json({ error: 'Sinopsis no disponible' });
   }
 }
