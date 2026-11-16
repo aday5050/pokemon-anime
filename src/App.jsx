@@ -85,6 +85,7 @@ function App() {
   const selectedSynopsis = useSynopsis(selectedEpisode);
   const featuredIndex = episodes.findIndex((episode) => episodeKey(episode) === episodeKey(featured));
   const nextEpisode = episodes[featuredIndex + 1];
+  const nextSelectedEpisode = selectedEpisode ? episodes[episodes.findIndex((episode) => episodeKey(episode) === episodeKey(selectedEpisode)) + 1] : null;
   const activeSeason = pokemonData.find((season) => String(season.id) === selectedSeasonId);
   const currentEpisodes = activeSeason ? activeSeason.episodes : episodes;
   const canonCount = currentEpisodes.filter((episode) => episode.status === 'Historia').length;
@@ -198,7 +199,7 @@ function App() {
           <p className="modal-subtitle">Episodio global #{selectedEpisode.global_number} <span>·</span> {selectedEpisode.status === 'Historia' ? 'Historia (canon)' : 'Relleno'}</p>
           <div className="modal-tabs"><button className={activeTab === 'details' ? 'active' : ''} onClick={() => setActiveTab('details')}>Información</button><button className={activeTab === 'player' ? 'active' : ''} onClick={() => setActiveTab('player')}>Reproductor</button></div>
           {activeTab === 'details' ? <div className="modal-details"><p className="section-kicker">SINOPSIS</p><p>{selectedSynopsis.description}</p>{selectedSynopsis.source && <a className="synopsis-source" href={selectedSynopsis.source.url} target="_blank" rel="noopener noreferrer">Sinopsis: {selectedSynopsis.source.name}</a>}<div className="modal-actions"><button className="primary-button" onClick={() => setActiveTab('player')}><Play weight="fill" size={17} /> Ver episodio</button><a className="external-link" href={`https://pkproject.net/episodios/serie-ash/temporada-${selectedEpisode.seasonId}/episodio-${selectedEpisode.number}`} target="_blank" rel="noopener noreferrer">Abrir en Pokémon Project <CaretRight size={16} /></a></div></div> :
-            <div className="video-frame"><VideoPlayer m3u8Url={`/pkvideo/descargas/stream/serie-ash/t${String(selectedEpisode.seasonId).padStart(2, '0')}/e${String(selectedEpisode.number).padStart(2, '0')}/t${String(selectedEpisode.seasonId).padStart(2, '0')}_e${String(selectedEpisode.number).padStart(2, '0')}.master.m3u8`} episodeId={episodeKey(selectedEpisode)} /></div>}
+            <div className="video-frame"><VideoPlayer key={episodeKey(selectedEpisode)} m3u8Url={`/pkvideo/descargas/stream/serie-ash/t${String(selectedEpisode.seasonId).padStart(2, '0')}/e${String(selectedEpisode.number).padStart(2, '0')}/t${String(selectedEpisode.seasonId).padStart(2, '0')}_e${String(selectedEpisode.number).padStart(2, '0')}.master.m3u8`} episodeId={episodeKey(selectedEpisode)} onNext={nextSelectedEpisode ? () => openEpisode(nextSelectedEpisode, 'player') : undefined} /></div>}
         </div>
       </div>}
     </div>
