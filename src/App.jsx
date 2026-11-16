@@ -1,510 +1,206 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, CaretLeft, CaretRight, Compass, MagnifyingGlass, Play, SignOut, User, X } from '@phosphor-icons/react';
 import VideoPlayer from './VideoPlayer';
 import pokemonData from './data/pokemon_episodes.json';
 import { useAuth } from './context/AuthContext';
 import { useProgress } from './context/ProgressContext';
+import { getContinueWatching } from './lib/continueWatching';
+import journeyHero from './assets/journey-hero.webp';
+
+const episodes = pokemonData.flatMap((season) => season.episodes.map((episode) => ({
+  ...episode, seasonId: season.id, seasonName: season.name,
+})));
+const PAGE_SIZE = 50;
+const normalize = (value) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const episodeKey = (episode) => `${episode.seasonId}_${episode.number}`;
+const shortSeason = (name) => name.replace(/^Temporada\s+\d+\s*[-–]\s*/i, '').replace(/^Pokémon\s*:?\s*/i, '');
+const synopsisCache = new Map();
+
+function useSynopsis(episode) {
+  const key = episode ? episodeKey(episode) : null;
+  const localDescription = episode?.description;
+  const [result, setResult] = useState(null);
+  useEffect(() => {
+    if (!key || localDescription) return;
+    const cached = synopsisCache.get(key);
+    if (cached) return;
+    const controller = new AbortController();
+    const [season, number] = key.split('_');
+    fetch(`/api/synopsis?season=${encodeURIComponent(season)}&episode=${encodeURIComponent(number)}`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        const value = { key, description: data?.description || '', source: data?.source || null };
+        synopsisCache.set(key, value);
+        setResult(value);
+      })
+      .catch(() => { if (!controller.signal.aborted) setResult({ key, description: '', source: null }); });
+    return () => controller.abort();
+  }, [key, localDescription]);
+  if (!episode) return null;
+  if (localDescription) return { description: localDescription };
+  const current = result?.key === key ? result : synopsisCache.get(key);
+  if (current) return { ...current, description: current.description || 'No hay una sinopsis disponible para este episodio.' };
+  return { description: 'Buscando sinopsis…' };
+}
 
 function App() {
   const { currentUser, loginWithGoogle, logout, isConfigured } = useAuth();
-  const { seenEpisodes, currentlyWatching } = useProgress();
-
+  const { progressData, seenEpisodes, loading } = useProgress();
   const [selectedSeasonId, setSelectedSeasonId] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState('all'); // all, canon, filler
+  const [filterType, setFilterType] = useState('all');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selectedEpisode, setSelectedEpisode] = useState(null);
-  const [activeTab, setActiveTab] = useState('details'); // details, player
+  const [activeTab, setActiveTab] = useState('details');
   const dialogRef = useRef(null);
+  const seasonRailRef = useRef(null);
 
   useEffect(() => {
     if (!selectedEpisode) return;
-
     const previousFocus = document.activeElement;
     const dialog = dialogRef.current;
-    const focusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])';
+    const selector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])';
     dialog?.querySelector('button')?.focus();
-
-    function handleKeyDown(event) {
-      if (event.key === 'Escape') {
-        setSelectedEpisode(null);
-      } else if (event.key === 'Tab' && dialog) {
-        const focusable = [...dialog.querySelectorAll(focusableSelector)];
-        if (!focusable.length) {
-          event.preventDefault();
-          return;
-        }
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
-          event.preventDefault();
-          first.focus();
-        }
+    function onKeyDown(event) {
+      if (event.key === 'Escape') setSelectedEpisode(null);
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = [...dialog.querySelectorAll(selector)];
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first) { event.preventDefault(); return; }
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
       }
     }
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      previousFocus?.focus();
-    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('keydown', onKeyDown); previousFocus?.focus(); };
   }, [selectedEpisode]);
 
-  const totalEpisodes = pokemonData.reduce((total, season) => total + season.episodes.length, 0);
-
-  // Parse seasons and precalculate stats
-  const seasonsWithStats = useMemo(() => {
-    return pokemonData.map(season => {
-      const total = season.episodes.length;
-      const canon = season.episodes.filter(ep => ep.status === 'Historia').length;
-      const filler = total - canon;
-      const canonPct = total > 0 ? Math.round((canon / total) * 100) : 0;
-      
-      // Calculate if season is completed (all canon episodes seen)
-      const canonEpisodes = season.episodes.filter(ep => ep.status === 'Historia');
-      const isCompleted = canonEpisodes.length > 0 && canonEpisodes.every(ep => seenEpisodes.has(`${season.id}_${ep.number}`));
-
-      return {
-        ...season,
-        isCompleted,
-        stats: { total, canon, filler, canonPct }
-      };
+  const continueWatching = useMemo(() => getContinueWatching(pokemonData, progressData), [progressData]);
+  const featured = continueWatching?.episode || episodes[0];
+  const featuredSynopsis = useSynopsis(featured);
+  const selectedSynopsis = useSynopsis(selectedEpisode);
+  const featuredIndex = episodes.findIndex((episode) => episodeKey(episode) === episodeKey(featured));
+  const nextEpisode = episodes[featuredIndex + 1];
+  const activeSeason = pokemonData.find((season) => String(season.id) === selectedSeasonId);
+  const currentEpisodes = activeSeason ? activeSeason.episodes : episodes;
+  const canonCount = currentEpisodes.filter((episode) => episode.status === 'Historia').length;
+  const canonPct = Math.round(canonCount / currentEpisodes.length * 100);
+  const filtered = useMemo(() => {
+    const query = normalize(searchQuery.trim());
+    return episodes.filter((episode) => {
+      const matchesSeason = selectedSeasonId === 'all' || String(episode.seasonId) === selectedSeasonId;
+      const matchesType = filterType === 'all' || (filterType === 'canon' ? episode.status === 'Historia' : episode.status === 'Relleno');
+      const matchesSearch = !query || normalize(episode.title).includes(query) || String(episode.number) === query || String(episode.global_number) === query;
+      return matchesSeason && matchesType && matchesSearch;
     });
-  }, [seenEpisodes]);
+  }, [selectedSeasonId, filterType, searchQuery]);
 
-  // Filter episodes based on selected season, search query and filler filter
-  const filteredEpisodes = useMemo(() => {
-    let list = [];
-    
-    if (selectedSeasonId === 'all') {
-      // Flatten all episodes and add season context to each
-      pokemonData.forEach(season => {
-        season.episodes.forEach(ep => {
-          list.push({
-            ...ep,
-            seasonId: season.id,
-            seasonName: season.name
-          });
-        });
-      });
-    } else {
-      const season = pokemonData.find(s => s.id === Number(selectedSeasonId));
-      if (season) {
-        list = season.episodes.map(ep => ({
-          ...ep,
-          seasonId: season.id,
-          seasonName: season.name
-        }));
-      }
-    }
-
-    // Apply Search Filter
-    if (searchQuery.trim() !== '') {
-      const query = searchQuery.toLowerCase().trim();
-      list = list.filter(ep => 
-        ep.title.toLowerCase().includes(query) ||
-        ep.number.toString() === query ||
-        ep.global_number.toString() === query
-      );
-    }
-
-    // Apply Status Filter
-    if (filterType === 'canon') {
-      list = list.filter(ep => ep.status === 'Historia');
-    } else if (filterType === 'filler') {
-      list = list.filter(ep => ep.status === 'Relleno');
-    }
-
-    return list;
-  }, [selectedSeasonId, searchQuery, filterType]);
-
-  // Overall stats for the current view
-  const currentViewStats = useMemo(() => {
-    let total = 0;
-    let canon = 0;
-    
-    if (selectedSeasonId === 'all') {
-      seasonsWithStats.forEach(s => {
-        total += s.stats.total;
-        canon += s.stats.canon;
-      });
-    } else {
-      const s = seasonsWithStats.find(s => s.id === Number(selectedSeasonId));
-      if (s) {
-        total = s.stats.total;
-        canon = s.stats.canon;
-      }
-    }
-    
-    const filler = total - canon;
-    const canonPct = total > 0 ? Math.round((canon / total) * 100) : 0;
-    const fillerPct = total > 0 ? Math.round((filler / total) * 100) : 0;
-
-    return { total, canon, filler, canonPct, fillerPct };
-  }, [selectedSeasonId, seasonsWithStats]);
-
-  const activeSeasonName = useMemo(() => {
-    if (selectedSeasonId === 'all') return 'Todas las Temporadas';
-    const s = pokemonData.find(s => s.id === Number(selectedSeasonId));
-    return s ? s.name : '';
-  }, [selectedSeasonId]);
+  function chooseSeason(id) { setSelectedSeasonId(id); setVisibleCount(PAGE_SIZE); }
+  function chooseFilter(value) { setFilterType(value); setVisibleCount(PAGE_SIZE); }
+  function openEpisode(episode, tab = 'details') { setSelectedEpisode(episode); setActiveTab(tab); }
+  const progress = continueWatching?.kind === 'resume' ? continueWatching.progress : null;
+  const progressMinutes = progress?.time > 0 ? Math.floor(progress.time / 60) : 0;
+  const progressPercent = progress?.duration > 0 ? Math.min(100, Math.max(0, progress.time / progress.duration * 100)) : null;
 
   return (
-    <div className="pokedex-app">
-      {/* Pokedex Header */}
-      <header className="pokedex-header glass">
-        <div className="pokedex-logo-section">
-          <div className="pokedex-lens"></div>
-          <div className="pokedex-lights">
-            <div className="light red"></div>
-            <div className="light yellow"></div>
-            <div className="light green"></div>
-          </div>
-          <h1 className="pokedex-title">
-            POKÉDEX <span>ANIME</span>
-          </h1>
-        </div>
-        <div className="pokedex-stats-quick" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }} className="hide-mobile">
-              Serie Completa • <strong>{totalEpisodes} Episodios</strong>
-          </span>
+    <div className="app-shell">
+      <a className="skip-link" href="#episodios">Saltar a episodios</a>
+      <header className="site-header">
+        <a className="brand" href="#inicio" aria-label="Pokédex Anime, inicio">
+          <Compass className="brand-icon" size={38} weight="duotone" aria-hidden="true" />
+          <span>Pokédex <em>Anime</em></span>
+        </a>
+        <nav className="header-nav" aria-label="Navegación principal">
+          <a href="#episodios" className="nav-active"><BookOpen size={19} /> Episodios</a>
+          <a href="#temporadas"><Compass size={19} /> Temporadas</a>
+        </nav>
+        <div className="header-right">
+          <span className="series-count">La serie de Ash · <strong>{episodes.length.toLocaleString('es-ES')} episodios</strong></span>
           {currentUser ? (
-            <div className="user-profile">
-              <img src={currentUser.photoURL || 'https://via.placeholder.com/32'} alt="Avatar" className="user-avatar" />
-              <div className="user-info">
-                <span className="user-name">{currentUser.displayName?.split(' ')[0]}</span>
-                <button onClick={logout} className="logout-btn">Salir</button>
-              </div>
-            </div>
+            <div className="account"><span>{currentUser.displayName?.split(' ')[0] || 'Mi cuenta'}</span><button className="account-button" onClick={logout} aria-label="Cerrar sesión"><SignOut size={19} /> Salir</button></div>
           ) : isConfigured ? (
-            <button onClick={loginWithGoogle} className="login-btn">
-              <span className="google-icon">G</span> Iniciar Sesión
-            </button>
-          ) : (
-            <span className="cloud-unavailable">Progreso en la nube no configurado</span>
-          )}
+            <button className="login-button" onClick={loginWithGoogle}><User size={19} /> Iniciar sesión</button>
+          ) : <span className="cloud-notice">Progreso en la nube no configurado</span>}
         </div>
       </header>
 
-      {/* Main Grid Layout */}
-      <div className="dashboard-grid">
-        
-        {/* Sidebar seasons navigation */}
-        <aside className="sidebar-panel glass">
-          <div className="sidebar-title">
-            <span>TEMPORADAS</span>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{pokemonData.length} en Total</span>
+      <main id="inicio" className="page-content">
+        <section className="hero" aria-labelledby="hero-title">
+          <img className="hero-art" src={journeyHero} alt="" />
+          <div className="hero-copy">
+            <p className="eyebrow">{loading && currentUser ? 'CARGANDO TU VIAJE' : continueWatching?.kind === 'next' ? 'TU SIGUIENTE EPISODIO' : continueWatching?.kind === 'complete' ? 'VIAJE COMPLETADO' : continueWatching ? 'CONTINÚA TU VIAJE' : 'COMIENZA TU VIAJE'}</p>
+            <h1 id="hero-title">{featured.title}</h1>
+            <p className="hero-description">{featuredSynopsis.description}</p>
+            {featuredSynopsis.source && <a className="synopsis-source" href={featuredSynopsis.source.url} target="_blank" rel="noopener noreferrer">Sinopsis: {featuredSynopsis.source.name}</a>}
+            <div className="hero-meta"><span>Ep. {featured.number}</span><span>Temporada {featured.seasonId}</span><span>#{featured.global_number} global</span></div>
+            <div className="hero-actions">
+              <button className="primary-button" onClick={() => openEpisode(featured, 'player')}><Play size={19} weight="fill" /> {continueWatching?.kind === 'next' ? 'Ver episodio' : continueWatching?.kind === 'complete' ? 'Volver a ver' : continueWatching ? 'Continuar episodio' : 'Empezar episodio'}</button>
+              <button className="secondary-button" disabled={!nextEpisode} onClick={() => nextEpisode && openEpisode(nextEpisode, 'player')}><span>Siguiente episodio</span><CaretRight size={18} /></button>
+            </div>
+            {progress && progressMinutes > 0 ? (
+              <div className="watch-progress">
+                {progressPercent !== null && <progress value={progressPercent} max="100" aria-label="Progreso del episodio" />}
+                <span>Visto: {progressMinutes} min{progress?.duration > 0 ? ` de ${Math.floor(progress.duration / 60)} min` : ''}</span>
+              </div>
+            ) : !currentUser ? <p className="hero-hint">Inicia sesión para guardar tu progreso.</p> : null}
           </div>
-          <div className="seasons-list">
-            <button
-              onClick={() => setSelectedSeasonId('all')}
-              className={`season-btn ${selectedSeasonId === 'all' ? 'active' : ''}`}
-            >
-              <span className="season-btn-name">Todas las Temporadas</span>
-              <span className="season-btn-stats">{totalEpisodes} caps • {pokemonData.length} temp</span>
-            </button>
-            
-            {seasonsWithStats.map(season => (
-              <button
-                key={season.id}
-                onClick={() => setSelectedSeasonId(season.id.toString())}
-                className={`season-btn ${selectedSeasonId === season.id.toString() ? 'active' : ''} ${season.isCompleted ? 'completed' : ''}`}
-              >
-                <span className="season-btn-name">
-                  {season.name} {season.isCompleted && '✅'}
-                </span>
-                <span className="season-btn-stats">
-                  {season.stats.total} caps • {season.stats.canonPct}% canon
-                </span>
-              </button>
-            ))}
+        </section>
+
+        <section id="temporadas" className="seasons" aria-label="Seleccionar temporada">
+          <div className="season-heading"><Compass size={28} /><h2>Temporadas</h2></div>
+          <button className="rail-arrow" aria-label="Temporadas anteriores" onClick={() => seasonRailRef.current?.scrollBy({ left: -450, behavior: 'smooth' })}><CaretLeft size={18} /></button>
+          <div className="season-rail" ref={seasonRailRef}>
+            <button className={selectedSeasonId === 'all' ? 'season-pill active' : 'season-pill'} aria-pressed={selectedSeasonId === 'all'} onClick={() => chooseSeason('all')}><strong>Todas</strong><span>La serie</span></button>
+            {pokemonData.map((season) => <button key={season.id} className={selectedSeasonId === String(season.id) ? 'season-pill active' : 'season-pill'} aria-pressed={selectedSeasonId === String(season.id)} onClick={() => chooseSeason(String(season.id))}><strong>T{season.id}</strong><span>{shortSeason(season.name)}</span></button>)}
           </div>
-        </aside>
+          <button className="rail-arrow" aria-label="Más temporadas" onClick={() => seasonRailRef.current?.scrollBy({ left: 450, behavior: 'smooth' })}><CaretRight size={18} /></button>
+        </section>
 
-        {/* Dashboard Content */}
-        <main className="main-content">
-          
-          {/* Season Stats Banner */}
-          <section className="stats-banner glass">
-            <div className="stats-card">
-              <span className="stats-label">Temporada Activa</span>
-              <div className="stats-val-group">
-                <span className="stats-value" style={{ fontSize: '1.25rem', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '300px' }}>
-                  {activeSeasonName}
-                </span>
-              </div>
-              <span className="stats-percentage">Total: {currentViewStats.total} episodios</span>
-            </div>
-
-            <div className="stats-card">
-              <span className="stats-label">Episodios de Historia (Canon)</span>
-              <div className="stats-val-group">
-                <span className="stats-value green">{currentViewStats.canon}</span>
-                <span className="stats-percentage">{currentViewStats.canonPct}% de la serie</span>
-              </div>
-              <div className="progress-bar-container">
-                <div 
-                  className="progress-bar-fill green" 
-                  style={{ width: `${currentViewStats.canonPct}%` }}
-                ></div>
-              </div>
-            </div>
-
-            <div className="stats-card">
-              <span className="stats-label">Episodios de Relleno</span>
-              <div className="stats-val-group">
-                <span className="stats-value red">{currentViewStats.filler}</span>
-                <span className="stats-percentage">{currentViewStats.fillerPct}% de la serie</span>
-              </div>
-              <div className="progress-bar-container">
-                <div 
-                  className="progress-bar-fill red" 
-                  style={{ width: `${currentViewStats.fillerPct}%` }}
-                ></div>
-              </div>
-            </div>
-          </section>
-
-          {/* Search & Filter Controls */}
-          <section className="controls-bar glass">
-            <div className="search-wrapper">
-              <span className="search-icon">🔍</span>
-              <input
-                type="text"
-                className="search-input"
-                placeholder="Buscar por título, N° capítulo o N° global..."
-                aria-label="Buscar por título, número de capítulo o número global"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            
-            <div className="filters-wrapper">
-              <button
-                className={`filter-btn ${filterType === 'all' ? 'active' : ''}`}
-                onClick={() => setFilterType('all')}
-              >
-                Todos
-              </button>
-              <button
-                className={`filter-btn ${filterType === 'canon' ? 'active' : ''}`}
-                onClick={() => setFilterType('canon')}
-              >
-                Solo Canon ✅
-              </button>
-              <button
-                className={`filter-btn ${filterType === 'filler' ? 'active' : ''}`}
-                onClick={() => setFilterType('filler')}
-              >
-                Solo Relleno ❌
-              </button>
-            </div>
-          </section>
-
-          {/* Episodes Grid */}
-          {filteredEpisodes.length > 0 ? (
-            <div className="episode-grid">
-              {filteredEpisodes.map((ep) => {
-                const epKey = `${ep.seasonId}_${ep.number}`;
-                const isSeen = seenEpisodes.has(epKey);
-                const isWatching = currentlyWatching === epKey;
-                
-                return (
-                <div
-                  key={epKey}
-                  className={`episode-card glass ${ep.status === 'Historia' ? 'canon' : 'filler'} ${isSeen ? 'seen' : ''} ${isWatching ? 'watching' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => { setSelectedEpisode(ep); setActiveTab('details'); }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      setSelectedEpisode(ep);
-                      setActiveTab('details');
-                    }
-                  }}
-                >
-                  <div className="ep-card-header">
-                    <div className="ep-badge-group">
-                      <span className="ep-number">Cap. {ep.number}</span>
-                      <span className="ep-global">Global: #{ep.global_number}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      {isWatching && <span className="ep-watching-badge">Viendo 👀</span>}
-                      {isSeen && !isWatching && <span className="ep-seen-badge">Visto ✅</span>}
-                      <span className={`ep-status-badge ${ep.status === 'Historia' ? 'canon' : 'filler'}`}>
-                        {ep.status === 'Historia' ? 'Canon' : 'Relleno'}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <h3 className="ep-title">{ep.title}</h3>
-                  {selectedSeasonId === 'all' && (
-                    <span style={{ fontSize: '0.75rem', color: 'var(--neon-blue)', fontWeight: 600 }}>
-                      {ep.seasonName.split(' - ')[0]}
-                    </span>
-                  )}
-                  {ep.description && (
-                    <p className="ep-desc">{ep.description}</p>
-                  )}
-                </div>
-              )})}
-            </div>
-          ) : (
-            <div className="empty-state glass">
-              <span className="empty-state-icon">🚫</span>
-              <p className="empty-state-text">No se encontraron episodios que coincidan con la búsqueda.</p>
-            </div>
-          )}
-        </main>
-      </div>
-
-      {/* Episode Detail Drawer/Modal */}
-      {selectedEpisode && (
-        <div className="details-modal" onClick={() => setSelectedEpisode(null)}>
-          <div 
-            className="details-content glass" 
-            ref={dialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="episode-dialog-title"
-            onClick={(e) => e.stopPropagation()}
-            style={{ borderTop: `4px solid ${selectedEpisode.status === 'Historia' ? 'var(--neon-green)' : 'var(--neon-red)'}` }}
-          >
-            <button 
-              className="details-close-btn"
-              aria-label="Cerrar detalles"
-              onClick={() => setSelectedEpisode(null)}
-            >
-              ✕
-            </button>
-            
-            <div className="details-ep-number">
-              Capítulo {selectedEpisode.number} • Global #{selectedEpisode.global_number}
-            </div>
-            
-            <h2 id="episode-dialog-title" className="details-ep-title">{selectedEpisode.title}</h2>
-
-            {/* Modal Tabs */}
-            <div className="modal-tabs" style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: '1.5rem', paddingBottom: '0.5rem' }}>
-              <button 
-                className={`modal-tab-btn ${activeTab === 'details' ? 'active' : ''}`}
-                onClick={() => setActiveTab('details')}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: activeTab === 'details' ? 'var(--neon-blue)' : 'var(--text-secondary)',
-                  fontFamily: 'var(--font-header)',
-                  fontSize: '1.1rem',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  borderBottom: activeTab === 'details' ? '2px solid var(--neon-blue)' : 'none',
-                  paddingBottom: '0.25rem',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px'
-                }}
-              >
-                Información
-              </button>
-              <button 
-                className={`modal-tab-btn ${activeTab === 'player' ? 'active' : ''}`}
-                onClick={() => setActiveTab('player')}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: activeTab === 'player' ? 'var(--neon-blue)' : 'var(--text-secondary)',
-                  fontFamily: 'var(--font-header)',
-                  fontSize: '1.1rem',
-                  fontWeight: '700',
-                  cursor: 'pointer',
-                  borderBottom: activeTab === 'player' ? '2px solid var(--neon-blue)' : 'none',
-                  paddingBottom: '0.25rem',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px'
-                }}
-              >
-                ▶ Reproductor
-              </button>
-            </div>
-
-            {activeTab === 'details' ? (
-              <>
-                <div className="details-meta-row">
-                  <div className="details-meta-item">
-                    <span className="details-meta-label">Temporada</span>
-                    <span className="details-meta-val">{selectedEpisode.seasonName}</span>
-                  </div>
-                  <div className="details-meta-item">
-                    <span className="details-meta-label">Clasificación</span>
-                    <span 
-                      className="details-meta-val" 
-                      style={{ color: selectedEpisode.status === 'Historia' ? 'var(--neon-green)' : 'var(--neon-red)' }}
-                    >
-                      {selectedEpisode.status === 'Historia' ? 'Historia (Canon) ✅' : 'Relleno (Filler) ❌'}
-                    </span>
-                  </div>
-                </div>
-                
-                <div className="details-description-section">
-                  <h4 className="details-desc-title">Sinopsis / Detalles</h4>
-                  <p className="details-desc">
-                    {selectedEpisode.description || 'No hay una sinopsis disponible para este episodio.'}
-                  </p>
-                </div>
-                
-                <div className="details-action-section" style={{ marginTop: '2rem', display: 'flex' }}>
-                  <a 
-                    href={`https://pkproject.net/episodios/serie-ash/temporada-${selectedEpisode.seasonId}/episodio-${selectedEpisode.number}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="watch-btn"
-                    style={{
-                      background: selectedEpisode.status === 'Historia' ? 'var(--neon-green)' : 'var(--neon-red)',
-                      color: '#000',
-                      textDecoration: 'none',
-                      padding: '0.8rem 1.5rem',
-                      borderRadius: '10px',
-                      fontWeight: '800',
-                      textAlign: 'center',
-                      flex: 1,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.5rem',
-                      boxShadow: selectedEpisode.status === 'Historia' ? '0 0 15px rgba(0, 230, 118, 0.3)' : '0 0 15px rgba(255, 70, 85, 0.3)',
-                      transition: 'var(--transition-smooth)'
-                    }}
-                  >
-                    ▶ VER EPISODIO EN POKÉMON PROJECT
-                  </a>
-                </div>
-              </>
-            ) : (
-              <div style={{ 
-                marginTop: '1.5rem',
-                borderRadius: '12px',
-                overflow: 'hidden',
-                background: '#000',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
-                boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
-                position: 'relative',
-                paddingTop: '56.25%' /* 16:9 Aspect Ratio */
-              }}>
-                <div style={{
-                  position: 'absolute',
-                  top: 0, left: 0, right: 0, bottom: 0
-                }}>
-                  <VideoPlayer 
-                    m3u8Url={`/pkvideo/descargas/stream/serie-ash/t${String(selectedEpisode.seasonId).padStart(2, '0')}/e${String(selectedEpisode.number).padStart(2, '0')}/t${String(selectedEpisode.seasonId).padStart(2, '0')}_e${String(selectedEpisode.number).padStart(2, '0')}.master.m3u8`}
-                    episodeId={`${selectedEpisode.seasonId}_${selectedEpisode.number}`}
-                  />
-                </div>
-              </div>
-            )}
+        <section id="episodios" className="catalog" aria-labelledby="catalog-title">
+          <div className="catalog-heading">
+            <div><p className="section-kicker">LA GUÍA DE EPISODIOS</p><h2 id="catalog-title">{activeSeason ? <>Temporada {activeSeason.id} <span>· {shortSeason(activeSeason.name)}</span></> : 'Todas las temporadas'}</h2>
+              <p className="catalog-meta">{currentEpisodes.length} episodios <span>·</span> {canonPct}% historia</p></div>
+            <span className="catalog-index">GUÍA DE VIAJE / {activeSeason ? String(activeSeason.id).padStart(2, '0') : '01—25'}</span>
           </div>
+          <div className="catalog-controls">
+            <label className="search"><MagnifyingGlass size={23} aria-hidden="true" /><span className="sr-only">Buscar por título, número de capítulo o número global</span><input value={searchQuery} onChange={(event) => { setSearchQuery(event.target.value); setVisibleCount(PAGE_SIZE); }} placeholder="Buscar por título o número de episodio..." /></label>
+            <div className="filters" role="group" aria-label="Filtrar por clasificación"><span>Filtrar:</span>{[['all', 'Todos'], ['canon', 'Historia'], ['filler', 'Relleno']].map(([value, label]) => <button key={value} className={filterType === value ? 'filter active' : 'filter'} aria-pressed={filterType === value} onClick={() => chooseFilter(value)}>{label}</button>)}</div>
+          </div>
+          <div className="results-line"><span>{filtered.length} {filtered.length === 1 ? 'episodio' : 'episodios'}</span>{(searchQuery || filterType !== 'all' || selectedSeasonId !== 'all') && <button onClick={() => { chooseSeason('all'); chooseFilter('all'); setSearchQuery(''); }}>Limpiar filtros</button>}</div>
+          {filtered.length ? <div className="episode-list">
+            {filtered.slice(0, visibleCount).map((episode) => {
+              const isFinished = progressData[episodeKey(episode)]?.finished === true;
+              const isWatching = continueWatching?.kind === 'resume' && episodeKey(featured) === episodeKey(episode);
+              const wasSeen = seenEpisodes.has(episodeKey(episode));
+              return <button className="episode-row" key={episodeKey(episode)} onClick={() => openEpisode(episode)}>
+                <span className="episode-number">Ep. {episode.number}</span>
+                <span className="episode-information"><strong>{episode.title}</strong><span>{episode.description || `Temporada ${episode.seasonId} · Episodio global ${episode.global_number}`}</span></span>
+                <span className={episode.status === 'Historia' ? 'status-tag canon' : 'status-tag filler'}>{episode.status === 'Historia' ? 'CANON' : 'RELLENO'}</span>
+                <span className="episode-kind"><BookOpen size={20} /> {isFinished ? 'Terminado' : isWatching ? 'Viendo' : wasSeen ? 'Visto' : episode.status === 'Historia' ? 'Historia' : 'Relleno'}</span>
+                <CaretRight className="row-arrow" size={20} />
+              </button>;
+            })}
+          </div> : <div className="empty-state"><h3>No encontramos episodios</h3><p>Prueba con otro título o cambia los filtros.</p></div>}
+          {visibleCount < filtered.length && <div className="load-more"><button className="secondary-button" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>Mostrar más episodios <CaretRight size={16} /></button><span>Mostrando {Math.min(visibleCount, filtered.length)} de {filtered.length}</span></div>}
+        </section>
+        <footer className="site-footer"><span>Pokédex <em>Anime</em></span><span>Una guía para volver a vivir la aventura.</span></footer>
+      </main>
+
+      {selectedEpisode && <div className="modal-backdrop" onClick={() => setSelectedEpisode(null)}>
+        <div className="modal" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="episode-dialog-title" onClick={(event) => event.stopPropagation()}>
+          <button className="modal-close" aria-label="Cerrar detalles" onClick={() => setSelectedEpisode(null)}><X size={22} /></button>
+          <p className="eyebrow">TEMPORADA {selectedEpisode.seasonId} · EPISODIO {selectedEpisode.number}</p>
+          <h2 id="episode-dialog-title">{selectedEpisode.title}</h2>
+          <p className="modal-subtitle">Episodio global #{selectedEpisode.global_number} <span>·</span> {selectedEpisode.status === 'Historia' ? 'Historia (canon)' : 'Relleno'}</p>
+          <div className="modal-tabs"><button className={activeTab === 'details' ? 'active' : ''} onClick={() => setActiveTab('details')}>Información</button><button className={activeTab === 'player' ? 'active' : ''} onClick={() => setActiveTab('player')}>Reproductor</button></div>
+          {activeTab === 'details' ? <div className="modal-details"><p className="section-kicker">SINOPSIS</p><p>{selectedSynopsis.description}</p>{selectedSynopsis.source && <a className="synopsis-source" href={selectedSynopsis.source.url} target="_blank" rel="noopener noreferrer">Sinopsis: {selectedSynopsis.source.name}</a>}<div className="modal-actions"><button className="primary-button" onClick={() => setActiveTab('player')}><Play weight="fill" size={17} /> Ver episodio</button><a className="external-link" href={`https://pkproject.net/episodios/serie-ash/temporada-${selectedEpisode.seasonId}/episodio-${selectedEpisode.number}`} target="_blank" rel="noopener noreferrer">Abrir en Pokémon Project <CaretRight size={16} /></a></div></div> :
+            <div className="video-frame"><VideoPlayer m3u8Url={`/pkvideo/descargas/stream/serie-ash/t${String(selectedEpisode.seasonId).padStart(2, '0')}/e${String(selectedEpisode.number).padStart(2, '0')}/t${String(selectedEpisode.seasonId).padStart(2, '0')}_e${String(selectedEpisode.number).padStart(2, '0')}.master.m3u8`} episodeId={episodeKey(selectedEpisode)} /></div>}
         </div>
-      )}
+      </div>}
     </div>
   );
 }

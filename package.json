@@ -11,8 +11,10 @@
     "test": "node --test"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "firebase": "^12.15.0",
     "hls.js": "^1.6.16",
+    "parse5": "^8.1.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-player": "^3.4.0"

@@ -4,7 +4,7 @@ import { useWatchProgress } from './hooks/useWatchProgress';
 
 export default function VideoPlayer({ m3u8Url, episodeId }) {
   const videoRef = useRef(null);
-  const { initialProgress, isLoaded, saveProgress } = useWatchProgress(episodeId);
+  const { initialProgress, isLoaded, saveProgress, finishProgress } = useWatchProgress(episodeId);
 
   useEffect(() => {
     if (!m3u8Url || !videoRef.current || !isLoaded) return;
@@ -37,10 +37,18 @@ export default function VideoPlayer({ m3u8Url, episodeId }) {
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const handleTimeUpdate = () => saveProgress(video.currentTime);
+    const handleTimeUpdate = () => { if (!video.ended) saveProgress(video.currentTime, { duration: video.duration }); };
+    const handlePause = () => { if (!video.ended) saveProgress(video.currentTime, { force: true, duration: video.duration }); };
+    const handleEnded = () => finishProgress(video.currentTime, video.duration);
     video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-  }, [saveProgress]);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handleEnded);
+    return () => {
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('ended', handleEnded);
+    };
+  }, [saveProgress, finishProgress]);
 
   return (
     <video ref={videoRef} controls style={{ width: '100%', height: '100%', borderRadius: '12px', background: '#000', objectFit: 'contain' }} />

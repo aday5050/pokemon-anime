@@ -85,3 +85,48 @@ test('writes progress to the currently signed in account', async () => {
   await player.saveProgress(30);
   assert.equal(harness.writes.at(-1).uid, 'two');
 });
+
+test('marks the episode as finished only when playback ends', async () => {
+  const harness = createHookHarness();
+  const player = harness.render('1_1', { currentUser: { uid: 'one' }, loading: false, progressData: {} });
+  await player.saveProgress(20);
+  assert.notEqual(harness.writes.at(-1).data['1_1'].finished, true);
+  await player.finishProgress(1200);
+  assert.equal(harness.writes.at(-1).data['1_1'].finished, true);
+  assert.equal(harness.writes.at(-1).data['1_1'].time, 1200);
+});
+
+test('restarting a finished episode begins at the start and marks a new play as unfinished', async () => {
+  const harness = createHookHarness();
+  const player = harness.render('1_1', { currentUser: { uid: 'one' }, loading: false, progressData: { '1_1': { time: 1200, finished: true } } });
+  assert.equal(player.initialProgress, 0);
+  await player.saveProgress(20);
+  assert.equal(harness.writes.at(-1).data['1_1'].finished, false);
+});
+
+test('records a newly started episode before ten seconds elapse', async () => {
+  const harness = createHookHarness();
+  const player = harness.render('1_1', { currentUser: { uid: 'one' }, loading: false, progressData: {} });
+  await player.saveProgress(2);
+  assert.equal(harness.writes.at(-1).data['1_1'].time, 2);
+});
+
+test('stores a finite duration when the player provides one', async () => {
+  const harness = createHookHarness();
+  const player = harness.render('1_1', { currentUser: { uid: 'one' }, loading: false, progressData: {} });
+  await player.saveProgress(45, { duration: 1420.8 });
+  assert.equal(harness.writes.at(-1).data['1_1'].duration, 1420);
+  await player.finishProgress(1420, 1420.8);
+  assert.equal(harness.writes.at(-1).data['1_1'].duration, 1420);
+});
+
+test('omits missing and invalid durations for older data and live streams', async () => {
+  const harness = createHookHarness();
+  const player = harness.render('1_1', { currentUser: { uid: 'one' }, loading: false, progressData: {} });
+  for (const duration of [undefined, Infinity, NaN, 0, -1]) {
+    await player.saveProgress(45, { duration, force: true });
+    assert.equal('duration' in harness.writes.at(-1).data['1_1'], false);
+    await player.finishProgress(45, duration);
+    assert.equal('duration' in harness.writes.at(-1).data['1_1'], false);
+  }
+});
