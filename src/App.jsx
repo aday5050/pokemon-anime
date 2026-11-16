@@ -63,7 +63,7 @@ function App() {
     const selector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), video[controls], [tabindex]:not([tabindex="-1"])';
     dialog?.querySelector('button')?.focus();
     function onKeyDown(event) {
-      if (event.key === 'Escape') setSelectedEpisode(null);
+      if (event.key === 'Escape' && !document.fullscreenElement) setSelectedEpisode(null);
       if (event.key !== 'Tab' || !dialog) return;
       const focusable = [...dialog.querySelectorAll(selector)];
       const first = focusable[0];

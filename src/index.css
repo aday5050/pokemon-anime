@@ -116,8 +116,24 @@ progress { accent-color: #a53c35; width: 190px; height: 7px; }
 .player { border: 1px solid #d2b99a; border-radius: 10px; background: #f4e9d9; overflow: hidden; box-shadow: 0 8px 24px #54332218; }
 .video-screen { position: relative; aspect-ratio: 16 / 9; display: grid; place-items: center; background: #17120f; overflow: hidden; }
 .video-screen video { display: block; width: 100%; height: 100%; object-fit: contain; background: #17120f; }
-.player-status, .player-error { padding: 12px 16px; margin: 0; color: #6c4c39; font-size: .8rem; line-height: 1.5; }
-.player-error { color: #8e2e28; background: #f8e7df; }
+.video-frame:fullscreen { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; margin: 0; background: #000; }
+.video-frame:fullscreen .player { width: 100%; height: 100%; border: 0; border-radius: 0; background: #000; box-shadow: none; }
+.video-frame:fullscreen .video-screen { width: 100%; height: 100%; aspect-ratio: auto; background: #000; }
+.player-status, .player-error { position: absolute; z-index: 2; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 12px 16px; margin: 0; border-radius: 8px; background: rgba(25, 20, 18, .9); color: #fff8ed; font-size: .85rem; line-height: 1.5; text-align: center; }
+.player-status:not(.player-error) { pointer-events: none; }
+.player-error { color: #fff8ed; }
+.player-error p { margin: 0 0 8px; }
+.player-controls { position: absolute; z-index: 3; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; gap: 5px; padding: 24px 14px 12px; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,.9)); transition: opacity .2s ease; }
+.player-controls-hidden:not(:focus-within) { opacity: 0; pointer-events: none; }
+.player-control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.player-timeline { display: block; width: 100%; height: 18px; margin: 0; accent-color: #e94c42; cursor: pointer; }
+.player-volume { width: 68px; height: 18px; margin: 0 3px; accent-color: #e94c42; cursor: pointer; }
+.player-control { min-height: 36px; padding: 6px 9px; border: 1px solid rgba(255,255,255,.24); border-radius: 5px; background: rgba(20,20,20,.72); color: #fff; font-size: .75rem; font-weight: 700; }
+.player-control:not(:disabled):hover, .player-control-select select:hover { background: #5a3e35; }
+.player-control:focus-visible, .player-control-select select:focus-visible, .player-timeline:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.player-control-select { display: inline-flex; align-items: center; gap: 5px; color: #fff; font-size: .72rem; font-weight: 700; }
+.player-control-select select { max-width: 130px; min-height: 36px; padding: 5px; border: 1px solid rgba(255,255,255,.24); border-radius: 5px; background: #24201e; color: #fff; font: inherit; }
+.player-time { color: #fff; font-size: .72rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .player-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 15px; }
 .player-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .player-tool, .player-speed select, .player-next { min-height: 38px; border: 1px solid #d3bda3; border-radius: 6px; background: #fffaf1; color: #5b3d2e; font-size: .75rem; font-weight: 700; }
@@ -174,6 +190,14 @@ progress { accent-color: #a53c35; width: 190px; height: 7px; }
   .modal { max-height: 95dvh; padding: 24px 18px; }
   .modal-close { top: 12px; right: 12px; }
   .modal h2 { margin-right: 42px; }
+  .player-controls { gap: 3px; padding: 18px 8px 8px; }
+  .player-control-row { flex-wrap: nowrap; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: 3px; scrollbar-width: thin; scrollbar-color: #c4a499 transparent; }
+  .player-control-row > * { flex-shrink: 0; }
+  .player-volume { width: 50px; }
+  .player-control { min-height: 34px; padding: 5px 6px; font-size: .68rem; }
+  .player-control-select { font-size: .65rem; }
+  .player-control-select select { max-width: 95px; min-height: 34px; }
+  .player-time { font-size: .65rem; }
   .player-toolbar { align-items: stretch; padding: 10px; }
   .player-tools { flex: 1 1 100%; }
   .player-next { flex: 1; }
